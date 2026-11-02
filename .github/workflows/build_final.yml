@@ -1,0 +1,64 @@
+name: Build Final Android APK
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Auto Find and Unzip Project
+      run: |
+        find . -maxdepth 2 -name "*.zip" -exec unzip -o {} \;
+        PUBSPEC_DIR=$(dirname $(find . -name "pubspec.yaml" | head -n 1))
+        if [ "$PUBSPEC_DIR" != "." ] && [ -n "$PUBSPEC_DIR" ]; then
+          cp -r "$PUBSPEC_DIR"/* .
+          cp -r "$PUBSPEC_DIR"/.* . 2>/dev/null || true
+        fi
+
+    - name: Set up Java
+      uses: actions/setup-java@v4
+      with:
+        distribution: 'zulu'
+        java-version: '17'
+
+    - name: Set up Python & Fix pubspec.yaml completely
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.x'
+    - run: |
+        python3 -c '
+        import re
+        with open("pubspec.yaml", "r") as f:
+            content = f.read()
+        # استبدال أي أرقام إصدارات خيالية للـ SDK أو فلاتر بأرقام متوافقة
+        content = re.sub(r"sdk:\s*[\"'\'']?[^>\"'\''\n]*[\"'\'']?", "sdk: \">=3.0.0 <4.0.0\"", content)
+        content = re.sub(r"flutter:\s*[\"'\'']?>=[0-9]+\.[0-9]+\.[0-9]+[\"'\'']?", "flutter: \">=3.0.0\"", content)
+        with open("pubspec.yaml", "w") as f:
+            f.write(content)
+        '
+        cat pubspec.yaml
+        find . -name "prepare_android.py" -exec python3 {} \; || true
+
+    - name: Set up Flutter (Latest Stable)
+      uses: subosito/flutter-action@v2
+      with:
+        channel: 'stable'
+
+    - name: Get dependencies
+      run: flutter pub get
+
+    - name: Build APK
+      run: flutter build apk --release
+
+    - name: Upload APK
+      uses: actions/upload-artifact@v4
+      with:
+        name: Smart-Grocery-Debt-App
+        path: build/app/outputs/flutter-apk/app-release.apk
